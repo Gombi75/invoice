@@ -114,7 +114,7 @@ const fmt=n=>Number(n||0).toLocaleString('hu-HU');
 const MONTHS=['januar','februar','marcius','aprilis','majus','junius','julius','augusztus','szeptember','oktober','november','december'];
 const MONTHS_HU=['Január','Február','Március','Április','Május','Június','Július','Augusztus','Szeptember','Október','November','December'];
 let members=[],items=[],files=[],cats=[];
-const DEF_CATS='Tagdíj: tagdij, tag dij, egyesuleti\nHavidíj: havidij, havi dij, havi\nÚszás: uszas, uszo, uszoda, medence\nFutás: futas, futo, atletika\nKerékpár: kerekpar, bicikli, bringa\nEdzőtábor: tabor, edzotabor\nNevezés / verseny: nevezes, verseny, rajt\nTriatlon: triatlon, tri\nRuházat: mez, ruha, trikoszett, trisuit';
+const DEF_CATS='Tagdíj: tagdij, tag dij, egyesuleti\nHavidíj: havidij, havi dij, havi\nÚszás: uszas, uszo, uszoda, medence\nFutás: futas, futo, atletika\nKerékpár: kerekpar, bicikli, bringa\nEdzőtábor: tabor, edzotabor\nNevezés / verseny: nevezes, verseny, rajt\nTriatlon: triatlon, tritalon, triatlo, tri\nRuházat: mez, ruha, trikoszett, trisuit';
 function parseCats(){
   cats=$('cats').value.split(/\r?\n/).map(l=>l.split(':')).filter(x=>x.length>1&&x[0].trim()).map(([n,...k])=>({name:n.trim(),kws:norm(k.join(':')).split(' ').filter(Boolean)}));
   store.set('vesc-jogcimek',$('cats').value);
@@ -178,7 +178,32 @@ function periodOf(text){
 }
 
 const LABEL=/^.{0,25}?(kezdem[ée]nyez[őo]|befizet[őo]|ellenoldal|partner|megb[íi]z[óo]|k[üu]ld[őo]|n[ée]v)\S*\s*(neve)?\s*:?\s*/i;
+// OTP kivonat: tételenként "Forgalom típusa" kezdődik, címke–érték sorokkal.
+const START=/^Forgalom t[íi]pusa\b/i;
+function buildOTP(lines,source){
+  const blocks=[];let cur=null;
+  for(const l of lines){if(START.test(l)){cur=[l];blocks.push(cur)}else if(cur)cur.push(l)}
+  const val=(b,re,from=0)=>{for(let j=from;j<b.length;j++){const m=b[j].match(re);if(m)return {v:(m[1]||'').trim(),j}}return null};
+  return blocks.map(b=>{
+    // Az első "Összeg" a forgalom összege; a "Tranzakció utáni egyenleg" alatti az egyenleg – azt kihagyjuk.
+    const balIdx=b.findIndex(l=>/^Tranzakci[óo] ut[áa]ni egyenleg/i.test(l));
+    const am=val(b.slice(0,balIdx<0?b.length:balIdx),/^[ÖO]sszeg\s+(.*)$/i);
+    const a=am?amountOf(am.v):null;
+    const kz=b.findIndex(l=>/^Kezdem[ée]nyez[őo]\s*$/i.test(l)||/^Kezdem[ée]nyez[őo]\b/i.test(l));
+    const kv=b.findIndex(l=>/^Kedvezm[ée]nyezett\s*$/i.test(l));
+    const payerR=kz>=0?val(b,/^N[ée]v\s+(.*)$/i,kz+1):null;
+    const benefR=kv>=0?val(b,/^N[ée]v\s+(.*)$/i,kv+1):null;
+    const payer=payerR?payerR.v.replace(/\s{2,}.*$/,'').replace(/\s+LAFO$/i,'').trim():'';
+    const note=(val(b,/^K[öo]zlem[ée]ny\s*(.*)$/i)||{v:''}).v;
+    const dl=val(b,/^[ÉE]rt[ée]knap\S*\s+(.*)$/i)||val(b,/^K[öo]nyvel[ée]s d[áa]tuma\s+(.*)$/i)||val(b,/^Tranz\.d[áa]t\.\s*(.*)$/i);
+    let d=dl&&dl.v.match(DATE);if(!d)d=b.join(' ').match(DATE);
+    const best=matchBlock(payer);
+    return {source,text:b.join('\n'),payer,date:d?`${d[1]}-${d[2]}-${d[3]}`:'',amount:a?a.v:0,neg:(a&&a.neg)||(/vesc/i.test(payer)&&!(benefR&&/vesc/i.test(benefR.v))),
+      member:best?best.m.name:'',kind:best?best.kind:'none',period:periodOf(note),note,cat:catOf(note),ok:false};
+  }).filter(x=>!x.neg&&x.amount);
+}
 function buildItems(lines,source){
+  if(lines.some(l=>START.test(l)))return buildOTP(lines,source);
   // Bankformátum: az összeg mindig a kezdeményező/név sora FELETT van egy sorral.
   const ok=i=>i>0&&amountOf(lines[i-1])&&!DATE.test(lines[i].replace(LABEL,'').slice(0,12));
   let anchors=lines.map((l,i)=>LABEL.test(l)&&ok(i)?i:-1).filter(i=>i>=0);
