@@ -74,6 +74,7 @@ pre,.scroll{overflow-x:auto}code{overflow-wrap:anywhere}
       </label>
       <div class="row"><button class="ghost" id="demo">Kipróbálom minta adattal</button></div>
       <div id="status"></div>
+      <details style="margin-top:12px"><summary class="small" style="cursor:pointer">Kiolvasott nyers szöveg (hibakereséshez)</summary><pre id="rawtxt"></pre></details>
     </div>
   </div>
 </div></section>
@@ -90,8 +91,8 @@ pre,.scroll{overflow-x:auto}code{overflow-wrap:anywhere}
     <textarea id="cats" spellcheck="false" style="min-height:150px"></textarea>
   </details>
   <div class="scroll" style="margin-top:10px"><table class="stack" id="tbl">
-    <thead><tr><th>Jóváhagy</th><th>Dátum</th><th>Tag</th><th class="num">Összeg (Ft)</th><th>Időszak</th><th>Közlemény</th><th>Jogcím</th><th>Egyezés</th><th>Eredeti sor</th></tr></thead>
-    <tbody id="tbody"><tr><td colspan="9" class="small">Még nincs beolvasott tétel. Tölts fel egy PDF-et, vagy próbáld ki a minta adattal.</td></tr></tbody>
+    <thead><tr><th>Jóváhagy</th><th>Dátum</th><th>Befizető (PDF)</th><th>Tag</th><th class="num">Összeg (Ft)</th><th>Időszak</th><th>Közlemény</th><th>Jogcím</th><th>Egyezés</th><th>Eredeti sor</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan="10" class="small">Még nincs beolvasott tétel. Tölts fel egy PDF-et, vagy próbáld ki a minta adattal.</td></tr></tbody>
   </table></div>
 </div></section>
 
@@ -113,7 +114,7 @@ const fmt=n=>Number(n||0).toLocaleString('hu-HU');
 const MONTHS=['januar','februar','marcius','aprilis','majus','junius','julius','augusztus','szeptember','oktober','november','december'];
 const MONTHS_HU=['Január','Február','Március','Április','Május','Június','Július','Augusztus','Szeptember','Október','November','December'];
 let members=[],items=[],files=[],cats=[];
-const DEF_CATS='Tagdíj: tagdij, tag dij, egyesuleti\nHavidíj: havidij, havi dij, havi\nÚszás: usz, uszoda, medence\nFutás: futas, futo, atletika\nKerékpár: kerekpar, bicikli, bringa\nEdzőtábor: tabor, edzotabor\nNevezés / verseny: nevezes, verseny, rajt\nTriatlon: triatlon, tri\nRuházat: mez, ruha, trikoszett, trisuit';
+const DEF_CATS='Tagdíj: tagdij, tag dij, egyesuleti\nHavidíj: havidij, havi dij, havi\nÚszás: uszas, uszo, uszoda, medence\nFutás: futas, futo, atletika\nKerékpár: kerekpar, bicikli, bringa\nEdzőtábor: tabor, edzotabor\nNevezés / verseny: nevezes, verseny, rajt\nTriatlon: triatlon, tri\nRuházat: mez, ruha, trikoszett, trisuit';
 function parseCats(){
   cats=$('cats').value.split(/\r?\n/).map(l=>l.split(':')).filter(x=>x.length>1&&x[0].trim()).map(([n,...k])=>({name:n.trim(),kws:norm(k.join(':')).split(' ').filter(Boolean)}));
   store.set('vesc-jogcimek',$('cats').value);
@@ -176,7 +177,28 @@ function periodOf(text){
   return MONTHS.map((mo,k)=>words.some(w=>mo.startsWith(w)&&(w.length>=4||short.includes(w)))?MONTHS_HU[k]:'').filter(Boolean).join(', ');
 }
 
+const LABEL=/^.{0,25}?(kezdem[ée]nyez[őo]|befizet[őo]|ellenoldal|partner|megb[íi]z[óo]|k[üu]ld[őo]|n[ée]v)\S*\s*(neve)?\s*:?\s*/i;
 function buildItems(lines,source){
+  // Bankformátum: az összeg mindig a kezdeményező/név sora FELETT van egy sorral.
+  const ok=i=>i>0&&amountOf(lines[i-1])&&!DATE.test(lines[i].replace(LABEL,'').slice(0,12));
+  let anchors=lines.map((l,i)=>LABEL.test(l)&&ok(i)?i:-1).filter(i=>i>=0);
+  if(!anchors.length)anchors=lines.map((l,i)=>ok(i)&&matchBlock(l)?i:-1).filter(i=>i>=0);
+  if(!anchors.length)return buildByDate(lines,source);
+  return anchors.map((i,k)=>{
+    const start=i-1,end=k+1<anchors.length?anchors[k+1]-1:lines.length,blk=lines.slice(start,end);
+    let d=lines[start].match(DATE)||lines[i].match(DATE);
+    for(let j=start-1;!d&&j>=0&&j>=start-4;j--)d=lines[j].match(DATE);
+    if(!d)d=blk.join(' ').match(DATE);
+    const a=amountOf(lines[start]),payer=lines[i].replace(LABEL,'').trim();
+    const best=matchBlock(payer)||matchBlock(blk.slice(1).join(' '));
+    const rest=blk.slice(2).filter(l=>l.replace(DATE,'').trim());
+    let note='';for(const l of rest){const m=l.match(/(k[öo]zlem[ée]ny|megjegyz[ée]s|k[öo]zl\.)\s*:?\s*(.+)/i);if(m){note=m[2].trim();break}}
+    if(!note)note=rest.join(' ').trim();
+    return {source,text:blk.join('\n'),payer,date:d?`${d[1]}-${d[2]}-${d[3]}`:'',amount:a?a.v:0,neg:a?a.neg:false,
+      member:best?best.m.name:'',kind:best?best.kind:'none',period:periodOf(note)||periodOf(blk.join(' ')),note,cat:catOf(note),ok:false};
+  }).filter(x=>!x.neg);
+}
+function buildByDate(lines,source){
   const blocks=[];let cur=null;
   for(const l of lines){
     if(DATE.test(l)){cur={lines:[l]};blocks.push(cur)}
@@ -218,6 +240,7 @@ async function handle(list){
       status(f.name+' beolvasása…');
       const lines=await readPdf(f);
       if(!lines.length){status(f.name+': nincs benne szöveg (valószínűleg szkennelt kép). Kérj a banktól szöveges PDF-et.',true);continue}
+      $('rawtxt').textContent+=`=== ${f.name} ===\n`+lines.map((l,n)=>String(n+1).padStart(4)+'  '+l).join('\n')+'\n';
       const got=buildItems(lines,f.name);
       items=items.concat(got);files.push(f.name);
       status(`${f.name}: ${got.length} jóváírás, ebből ${got.filter(i=>i.member).length} egyezik a taglistával.`);
@@ -244,6 +267,7 @@ function render(){
   $('tbody').innerHTML=rows.length?rows.map(({it,i})=>`<tr class="${it.ok?'ok':''}">
     <td><input type="checkbox" data-i="${i}" data-f="ok" ${it.ok?'checked':''} ${it.member?'':'disabled'} aria-label="Jóváhagy"></td>
     <td style="white-space:nowrap">${esc(it.date)||'–'}</td>
+    <td class="note">${esc(it.payer||'')||'–'}</td>
     <td><select data-i="${i}" data-f="member">${opts.replace(`<option>${esc(it.member)}</option>`,`<option selected>${esc(it.member)}</option>`)}</select></td>
     <td class="num"><input type="number" data-i="${i}" data-f="amount" value="${Number(it.amount)||0}" step="100"></td>
     <td><input class="per" data-i="${i}" data-f="period" value="${esc(it.period)}" placeholder="pl. November"></td>
@@ -251,7 +275,7 @@ function render(){
     <td><input class="cat" list="catlist" data-i="${i}" data-f="cat" value="${esc(it.cat)}" placeholder="nincs jelölve"></td>
     <td>${it.kind==='full'?'<span class="tag t-full">teljes név</span>':it.kind==='weak'?'<span class="tag t-weak">részleges név</span>':it.member?'<span class="tag t-full">kézi</span>':'<span class="tag t-weak">nincs egyezés</span>'}${feeNote(it)}${dupNote(it,i)}</td>
     <td><details class="raw"><summary>${esc(it.source)}</summary><div>${esc(it.text)}</div></details></td></tr>`).join('')
-    :`<tr><td colspan="9" class="small">${items.length?'Nincs a taglistával egyező befizetés. Kapcsold be fent a nem párosított tételeket a kézi hozzárendeléshez.':'Még nincs beolvasott tétel.'}</td></tr>`;
+    :`<tr><td colspan="10" class="small">${items.length?'Nincs a taglistával egyező befizetés. Kapcsold be fent a nem párosított tételeket a kézi hozzárendeléshez.':'Még nincs beolvasott tétel.'}</td></tr>`;
   const matched=items.filter(i=>i.member),ok=items.filter(i=>i.ok&&i.member);
   $('stats').innerHTML=[['Beolvasott jóváírás',items.length],['Taghoz párosítva',matched.length],['Nem klubtag / nincs egyezés',items.length-matched.length],['Jóváhagyva',ok.length],['Jóváhagyott összeg',fmt(ok.reduce((s,i)=>s+(+i.amount||0),0))+' Ft']]
     .map(([k,v])=>`<span class="chip">${k}: <b>${esc(v)}</b></span>`).join('');
@@ -288,7 +312,7 @@ $('copy').addEventListener('click',async()=>{
 $('demo').addEventListener('click',()=>{
   if(!$('members').value.trim())$('members').value='Kovács Péter; 8000\nNagy Anna; 8000\nSzabó Gábor; 10000\nTóth Eszter; 8000';
   parseMembers();
-  const lines=['2026.11.03 JÓVÁÍRÁS KOVÁCS PÉTER','Közlemény: triatlon tagdíj november 8 000 Ft','2026.11.04 JÓVÁÍRÁS VARGA ISTVÁN','Közlemény: úszó szakosztály tagdíj 12 000 Ft','2026.11.05 JÓVÁÍRÁS NAGY ANNA','Közlemény: tagdíj nov-dec 16 000 Ft','2026.11.07 JÓVÁÍRÁS SZABÓ G.','Közlemény: Szabó Gábor úszás havidíj 9 500 Ft','2026.11.09 TERHELÉS ÁRAMSZOLGÁLTATÓ -42 310 Ft'];
+  const lines=['Számlakivonat 2026/11','2026.11.03 Jóváírás +8 000 Ft','Kezdeményező: KOVÁCS PÉTER','Közlemény: triatlon tagdíj november','2026.11.04 Jóváírás +12 000 Ft','Kezdeményező: VARGA ISTVÁN','Közlemény: úszó szakosztály havidíj','2026.11.05 Jóváírás +16 000 Ft','Kezdeményező: NAGY ANNA','Közlemény: havidíj nov-dec uszoda','2026.11.07 Jóváírás +9 500 Ft','Kezdeményező: SZABÓ GÁBOR','Közlemény: edzőtábor előleg','2026.11.09 Terhelés -42 310 Ft','Kedvezményezett: ÁRAMSZOLGÁLTATÓ ZRT'];
   items=items.concat(buildItems(lines,'minta-kivonat.pdf (minta)'));
   status('Minta adat betöltve – kitalált nevekkel és összegekkel.');render();
 });
