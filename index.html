@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Számla feldolgozó</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE: nyugodt, pontos irodai eszköz – mint egy könyvelő ellenőrző íve
+   IDEA: banki kivonat, amit sorról sorra kipipálunk
+   PICTURE: maga a munkafelület: feltöltő mező és ellenőrző táblázat
+   COLOUR and TYPE: fehér + fekete, egy menta mező; Space Grotesk + Inter
+   LAYOUT: lépések egymás alatt, a táblázat a középpont */
+:root{color-scheme:light dark;--bg:light-dark(#fff,#0b0d0f);--ink:light-dark(#111,#eef2f0);--mut:light-dark(#5b6360,#9aa5a0);--line:light-dark(#e3e7e5,#262b29);--mint:light-dark(#b8f5d0,#1d4a33);--mintink:light-dark(#0c3b22,#b8f5d0);--warn:light-dark(#9a3b00,#ffb37a);--warnbg:light-dark(#fff1e6,#3a2112);--card:light-dark(#f6f8f7,#14181a)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;overflow-x:clip}
+h1,h2{font-family:"Space Grotesk",Inter,sans-serif;line-height:1.05;text-wrap:balance;margin:0}
+h1{font-size:clamp(30px,4.5vw,46px)}h2{font-size:22px;display:flex;gap:10px;align-items:baseline}
+h2 b{font-size:14px;background:var(--ink);color:var(--bg);border-radius:99px;padding:2px 9px;font-family:Inter}
+.band{padding:clamp(24px,3.5vw,48px) max(5vw,16px)}.wrap{max-width:1240px;margin:0 auto}
+.hero{background:var(--mint);color:var(--mintink)}.hero p{margin:10px 0 0;max-width:62ch}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:24px;margin-top:24px}
+@media(max-width:800px){.grid{grid-template-columns:minmax(0,1fr)}}
+.box{background:var(--bg);color:var(--ink);border-radius:14px;padding:20px;border:1px solid var(--line)}
+textarea,input,select{font:16px Inter,sans-serif;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+textarea{width:100%;min-height:170px;resize:vertical}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,.drop:focus-visible{outline:3px solid #2bb673;outline-offset:2px}
+.hint{color:var(--mut);font-size:14px;margin:6px 0 0}
+.drop{display:grid;place-items:center;text-align:center;min-height:200px;border:2px dashed var(--mintink);border-radius:14px;padding:20px;cursor:pointer;background:var(--card)}
+.drop.over{background:var(--mint)}.drop strong{font-family:"Space Grotesk";font-size:22px;display:block}
+button{font:600 15px Inter,sans-serif;min-height:44px;padding:0 18px;border-radius:10px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+button.ghost{background:transparent;color:var(--ink)}button:disabled{opacity:.4;cursor:default}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+.stats{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.chip{border:1px solid var(--line);border-radius:99px;padding:4px 12px;font-size:14px}.chip b{font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{text-align:left;font-weight:600;color:var(--mut);font-size:13px;border-bottom:2px solid var(--ink);padding:8px 6px}
+td{border-bottom:1px solid var(--line);padding:8px 6px;vertical-align:top}
+td.num,th.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+td input[type=number]{width:110px;text-align:right}td input.per{width:130px}td input.cat{width:140px}.note{max-width:28ch;font-size:14px}td select{max-width:190px}
+input[type=checkbox]{width:22px;height:22px;accent-color:#16824f;margin:0}
+tr.ok{background:color-mix(in srgb,var(--mint) 55%,transparent)}
+.tag{display:inline-block;font-size:12px;border-radius:6px;padding:1px 7px;margin:2px 4px 0 0;white-space:nowrap}
+.t-full{background:var(--mint);color:var(--mintink)}.t-weak,.t-warn{background:var(--warnbg);color:var(--warn)}
+details.raw summary{cursor:pointer;color:var(--mut);font-size:13px}details.raw div{font-size:13px;color:var(--mut);white-space:pre-wrap;max-width:46ch}
+.msg{border-radius:10px;padding:10px 14px;margin-top:12px;background:var(--card)}.msg.err{background:var(--warnbg);color:var(--warn)}
+pre{background:var(--card);border-radius:10px;padding:12px;font-size:13px;max-height:220px}
+.small{font-size:13px;color:var(--mut)}
+pre,.scroll{overflow-x:auto}code{overflow-wrap:anywhere}
+@media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 0;padding-inline-start:8em;text-align:start}.stack td.num{text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;white-space:normal;color:var(--mut)}.stack td:empty{display:none}}
+</style>
+<script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+</head>
+<body>
+<section class="band hero"><div class="wrap">
+  <h1>Számla feldolgozó – VESC triatlon tagdíjak</h1>
+  <p>A PDF-ből kiolvasott befizetéseket a taglista alapján név szerint párosítja. Csak az kerül át a tagdíj programba, amit kipipálva jóváhagysz.</p>
+  <div class="grid">
+    <div class="box">
+      <h2><b>1</b>Taglista</h2>
+      <p class="hint">Soronként egy tag. Opcionálisan pontosvesszővel vagy tabbal a havi díj, pl. <code>Kovács Péter; 8000</code>. Google Sheetből két oszlopot másolva is működik.</p>
+      <textarea id="members" spellcheck="false" placeholder="Kovács Péter; 8000&#10;Nagy Anna; 8000"></textarea>
+      <p class="small" id="mcount"></p>
+    </div>
+    <div class="box">
+      <h2><b>2</b>PDF számla / kivonat</h2>
+      <label class="drop" id="drop" tabindex="0">
+        <input type="file" id="file" accept="application/pdf,.pdf" multiple hidden>
+        <span><strong>Húzd ide a PDF-et</strong>vagy kattints a tallózáshoz · több fájl is mehet</span>
+      </label>
+      <div class="row"><button class="ghost" id="demo">Kipróbálom minta adattal</button></div>
+      <div id="status"></div>
+    </div>
+  </div>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <h2><b>3</b>Ellenőrzés</h2>
+  <p class="hint">Minden egyezés alapból kipipálatlan. Pipáld ki, ha a befizető tényleg a triatlon szakosztály tagja és az összeg rendben van. A tag, az összeg és az időszak itt még javítható.</p>
+  <div class="stats" id="stats"></div>
+  <div class="row" style="margin-top:0">
+    <label class="small"><input type="checkbox" id="showAll"> A nem párosított tételek is látszanak (kézi hozzárendeléshez)</label>
+  </div>
+  <details class="box" style="margin-top:12px"><summary style="cursor:pointer;font-weight:600">Jogcímek és kulcsszavaik (a közleményből ezek alapján sorol be)</summary>
+    <p class="hint">Soronként: <code>Jogcím: kulcsszó, kulcsszó</code>. Ékezet és kis/nagybetű nem számít, a kulcsszó szó eleje is lehet (pl. „usz” → úszás, uszoda, úszó).</p>
+    <textarea id="cats" spellcheck="false" style="min-height:150px"></textarea>
+  </details>
+  <div class="scroll" style="margin-top:10px"><table class="stack" id="tbl">
+    <thead><tr><th>Jóváhagy</th><th>Dátum</th><th>Tag</th><th class="num">Összeg (Ft)</th><th>Időszak</th><th>Közlemény</th><th>Jogcím</th><th>Egyezés</th><th>Eredeti sor</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan="9" class="small">Még nincs beolvasott tétel. Tölts fel egy PDF-et, vagy próbáld ki a minta adattal.</td></tr></tbody>
+  </table></div>
+</div></section>
+
+<section class="band" style="background:var(--card)"><div class="wrap">
+  <h2><b>4</b>Gyűjtő riport</h2>
+  <p class="hint">A jóváhagyott tételek tabbal tagolva (dátum, név, összeg, időszak, jogcím, közlemény, forrás) – Excelbe vagy Google Sheetbe közvetlenül beilleszthetők.</p>
+  <div class="stats" id="catsum"></div>
+  <div class="row"><button id="copy" disabled>Jóváhagyottak másolása</button><span class="small" id="copymsg"></span></div>
+  <datalist id="catlist"></datalist>
+  <pre id="out">–</pre>
+</div></section>
+
+<script>
+{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm=s=>String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const fmt=n=>Number(n||0).toLocaleString('hu-HU');
+const MONTHS=['januar','februar','marcius','aprilis','majus','junius','julius','augusztus','szeptember','oktober','november','december'];
+const MONTHS_HU=['Január','Február','Március','Április','Május','Június','Július','Augusztus','Szeptember','Október','November','December'];
+let members=[],items=[],files=[],cats=[];
+const DEF_CATS='Tagdíj: tagdij, tag dij, egyesuleti\nHavidíj: havidij, havi dij, havi\nÚszás: usz, uszoda, medence\nFutás: futas, futo, atletika\nKerékpár: kerekpar, bicikli, bringa\nEdzőtábor: tabor, edzotabor\nNevezés / verseny: nevezes, verseny, rajt\nTriatlon: triatlon, tri\nRuházat: mez, ruha, trikoszett, trisuit';
+function parseCats(){
+  cats=$('cats').value.split(/\r?\n/).map(l=>l.split(':')).filter(x=>x.length>1&&x[0].trim()).map(([n,...k])=>({name:n.trim(),kws:norm(k.join(':')).split(' ').filter(Boolean)}));
+  store.set('vesc-jogcimek',$('cats').value);
+}
+function noteOf(lines){
+  for(const l of lines){const m=l.match(/(k[öo]zlem[ée]ny|megjegyz[ée]s|k[öo]zl\.)\s*:?\s*(.+)/i);if(m)return m[2].trim()}
+  return (lines.length>1?lines.slice(1).join(' '):lines[0].replace(DATE,'')).trim();
+}
+function catOf(note){
+  const words=norm(note).split(' ');
+  return cats.filter(c=>c.kws.some(k=>words.some(w=>w.startsWith(k)&&(k.length>=4||w===k)))).map(c=>c.name).join(', ');
+}
+
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+
+function parseMembers(){
+  members=$('members').value.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const [name,fee]=l.split(/[;\t]/).map(x=>x.trim());
+    const toks=norm(name).split(' ').filter(t=>t.length>1&&t!=='dr'&&t!=='ifj'&&t!=='id');
+    return {name,fee:fee?parseInt(fee.replace(/\D/g,''))||0:0,toks};
+  }).filter(m=>m.toks.length);
+  $('mcount').textContent=members.length?members.length+' tag a listában':'';
+  store.set('vesc-taglista',$('members').value);
+}
+
+function matchBlock(text){
+  const words=new Set(norm(text).split(' '));
+  let best=null;
+  for(const m of members){
+    const hit=m.toks.filter(t=>words.has(t)).length;
+    if(!hit)continue;
+    const full=hit===m.toks.length;
+    const weak=!full&&hit>=2;
+    if(!full&&!weak)continue;
+    const score=hit/m.toks.length+(full?1:0);
+    if(!best||score>best.score)best={m,score,kind:full?'full':'weak'};
+  }
+  return best;
+}
+
+const DATE=/(20\d\d)\s?[.\-\/]\s?(\d\d)\s?[.\-\/]\s?(\d\d)\.?/;
+function amountOf(text){
+  const t=text.replace(DATE,' ');
+  const re=/([+\-−]?)\s?(\d{1,3}(?:[ . ]\d{3})+|\d{3,7})(,\d{1,2})?\s*(Ft|HUF|forint)?(?![\d\-])/gi;
+  let m,c=[];
+  while(m=re.exec(t)){
+    const pre=t[m.index-1]||'';
+    if(/[\d\-\/]/.test(pre))continue;
+    const v=parseInt(m[2].replace(/[ . ]/g,''));
+    if(v<100||v>5000000)continue;
+    c.push({v,neg:/[-−]/.test(m[1]),cur:!!m[4],dec:!!m[3]});
+  }
+  if(!c.length)return null;
+  return c.find(x=>x.cur)||c.find(x=>x.dec)||c[0];
+}
+function periodOf(text){
+  const n=norm(text);
+  if(/\b(eves|egesz ev|teljes ev)\b/.test(n))return 'éves';
+  const words=n.split(' '),short=['jan','feb','apr','maj','jun','jul','aug','okt','nov','dec'];
+  return MONTHS.map((mo,k)=>words.some(w=>mo.startsWith(w)&&(w.length>=4||short.includes(w)))?MONTHS_HU[k]:'').filter(Boolean).join(', ');
+}
+
+function buildItems(lines,source){
+  const blocks=[];let cur=null;
+  for(const l of lines){
+    if(DATE.test(l)){cur={lines:[l]};blocks.push(cur)}
+    else if(cur)cur.lines.push(l);
+  }
+  if(!blocks.length)blocks.push({lines});
+  return blocks.map(b=>{
+    const text=b.lines.join('\n');
+    const d=text.match(DATE),a=amountOf(text),best=matchBlock(text),note=noteOf(b.lines);
+    return {source,text,date:d?`${d[1]}-${d[2]}-${d[3]}`:'',amount:a?a.v:0,neg:a?a.neg:false,
+      member:best?best.m.name:'',kind:best?best.kind:'none',period:periodOf(note)||periodOf(text),note,cat:catOf(note),ok:false};
+  }).filter(x=>!x.neg);
+}
+
+async function readPdf(file){
+  const doc=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  const lines=[];
+  for(let p=1;p<=doc.numPages;p++){
+    const tc=await (await doc.getPage(p)).getTextContent();
+    const rows=new Map();
+    for(const it of tc.items){
+      if(!it.str.trim())continue;
+      const y=Math.round(it.transform[5]/3)*3;
+      if(!rows.has(y))rows.set(y,[]);
+      rows.get(y).push({x:it.transform[4],s:it.str});
+    }
+    [...rows.entries()].sort((a,b)=>b[0]-a[0]).forEach(([,r])=>lines.push(r.sort((a,b)=>a.x-b.x).map(o=>o.s).join(' ').replace(/\s+/g,' ').trim()));
+  }
+  return lines;
+}
+
+async function handle(list){
+  parseMembers();
+  if(!members.length){status('Előbb add meg a taglistát (1. lépés), különben nincs mihez párosítani.',true);return}
+  if(typeof pdfjsLib==='undefined'){status('A PDF-olvasó nem töltődött be. Frissítsd az oldalt.',true);return}
+  for(const f of list){
+    if(!/pdf$/i.test(f.name)&&f.type!=='application/pdf'){status(f.name+': ez nem PDF.',true);continue}
+    try{
+      status(f.name+' beolvasása…');
+      const lines=await readPdf(f);
+      if(!lines.length){status(f.name+': nincs benne szöveg (valószínűleg szkennelt kép). Kérj a banktól szöveges PDF-et.',true);continue}
+      const got=buildItems(lines,f.name);
+      items=items.concat(got);files.push(f.name);
+      status(`${f.name}: ${got.length} jóváírás, ebből ${got.filter(i=>i.member).length} egyezik a taglistával.`);
+    }catch(e){status(f.name+': nem sikerült beolvasni ('+e.message+').',true)}
+  }
+  render();
+}
+function status(t,err){$('status').innerHTML=`<div class="msg${err?' err':''}">${esc(t)}</div>`}
+
+function feeNote(it){
+  const m=members.find(x=>x.name===it.member);
+  if(!m||!m.fee||!it.amount)return '';
+  const k=it.amount/m.fee;
+  return Number.isInteger(k)?`<span class="tag t-full">${k} havi díj</span>`:`<span class="tag t-warn">összeg eltér (havi ${fmt(m.fee)})</span>`;
+}
+function dupNote(it,i){
+  return items.some((o,j)=>j!==i&&o.member&&o.member===it.member&&o.amount===it.amount&&o.date===it.date)?'<span class="tag t-warn">lehetséges duplikátum</span>':'';
+}
+
+function render(){
+  const show=$('showAll').checked;
+  const opts=['<option value="">– nincs –</option>'].concat(members.map(m=>`<option>${esc(m.name)}</option>`)).join('');
+  const rows=items.map((it,i)=>({it,i})).filter(({it})=>show||it.member);
+  $('tbody').innerHTML=rows.length?rows.map(({it,i})=>`<tr class="${it.ok?'ok':''}">
+    <td><input type="checkbox" data-i="${i}" data-f="ok" ${it.ok?'checked':''} ${it.member?'':'disabled'} aria-label="Jóváhagy"></td>
+    <td style="white-space:nowrap">${esc(it.date)||'–'}</td>
+    <td><select data-i="${i}" data-f="member">${opts.replace(`<option>${esc(it.member)}</option>`,`<option selected>${esc(it.member)}</option>`)}</select></td>
+    <td class="num"><input type="number" data-i="${i}" data-f="amount" value="${Number(it.amount)||0}" step="100"></td>
+    <td><input class="per" data-i="${i}" data-f="period" value="${esc(it.period)}" placeholder="pl. November"></td>
+    <td class="note">${esc(it.note)||'–'}</td>
+    <td><input class="cat" list="catlist" data-i="${i}" data-f="cat" value="${esc(it.cat)}" placeholder="nincs jelölve"></td>
+    <td>${it.kind==='full'?'<span class="tag t-full">teljes név</span>':it.kind==='weak'?'<span class="tag t-weak">részleges név</span>':it.member?'<span class="tag t-full">kézi</span>':'<span class="tag t-weak">nincs egyezés</span>'}${feeNote(it)}${dupNote(it,i)}</td>
+    <td><details class="raw"><summary>${esc(it.source)}</summary><div>${esc(it.text)}</div></details></td></tr>`).join('')
+    :`<tr><td colspan="9" class="small">${items.length?'Nincs a taglistával egyező befizetés. Kapcsold be fent a nem párosított tételeket a kézi hozzárendeléshez.':'Még nincs beolvasott tétel.'}</td></tr>`;
+  const matched=items.filter(i=>i.member),ok=items.filter(i=>i.ok&&i.member);
+  $('stats').innerHTML=[['Beolvasott jóváírás',items.length],['Taghoz párosítva',matched.length],['Nem klubtag / nincs egyezés',items.length-matched.length],['Jóváhagyva',ok.length],['Jóváhagyott összeg',fmt(ok.reduce((s,i)=>s+(+i.amount||0),0))+' Ft']]
+    .map(([k,v])=>`<span class="chip">${k}: <b>${esc(v)}</b></span>`).join('');
+  $('catlist').innerHTML=cats.map(c=>`<option value="${esc(c.name)}">`).join('');
+  const sum={};ok.forEach(i=>{const k=i.cat||'Nincs jogcím';sum[k]=(sum[k]||0)+(+i.amount||0)});
+  $('catsum').innerHTML=Object.entries(sum).map(([k,v])=>`<span class="chip">${esc(k)}: <b>${fmt(v)} Ft</b></span>`).join('');
+  const tsv=['Dátum\tNév\tÖsszeg\tIdőszak\tJogcím\tKözlemény\tForrás'].concat(ok.map(i=>[i.date,i.member,i.amount,i.period,i.cat,i.note,i.source].map(v=>String(v).replace(/[\t\n]/g,' ')).join('\t')));
+  $('out').textContent=ok.length?tsv.join('\n'):'– még nincs jóváhagyott tétel –';
+  $('copy').disabled=!ok.length;
+}
+
+$('tbody').addEventListener('change',e=>{
+  const el=e.target,i=+el.dataset.i,f=el.dataset.f;if(!f)return;
+  const it=items[i];
+  if(f==='ok')it.ok=el.checked;
+  else if(f==='amount')it.amount=parseInt(el.value)||0;
+  else if(f==='member'){it.member=el.value;if(it.kind==='none'||!el.value)it.kind=el.value?'manual':'none';if(!el.value)it.ok=false}
+  else it[f]=el.value;
+  render();
+});
+$('showAll').addEventListener('change',render);
+$('cats').addEventListener('input',()=>{parseCats();items.forEach(it=>it.cat=catOf(it.note));render()});
+$('members').addEventListener('input',()=>{parseMembers();items.forEach(it=>{if(it.kind!=='manual'){const b=matchBlock(it.text);it.member=b?b.m.name:'';it.kind=b?b.kind:'none';if(!b)it.ok=false}});render()});
+$('file').addEventListener('change',e=>{handle([...e.target.files]);e.target.value=''});
+const drop=$('drop');
+drop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file').click()}});
+['dragenter','dragover'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>handle([...e.dataTransfer.files]));
+$('copy').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText($('out').textContent);$('copymsg').textContent='Másolva – illeszd be a tagdíj program táblázatába.'}
+  catch(e){const r=document.createRange();r.selectNodeContents($('out'));const s=getSelection();s.removeAllRanges();s.addRange(r);$('copymsg').textContent='A másolás itt nem engedélyezett – kijelöltem, nyomj Ctrl+C-t.'}
+});
+$('demo').addEventListener('click',()=>{
+  if(!$('members').value.trim())$('members').value='Kovács Péter; 8000\nNagy Anna; 8000\nSzabó Gábor; 10000\nTóth Eszter; 8000';
+  parseMembers();
+  const lines=['2026.11.03 JÓVÁÍRÁS KOVÁCS PÉTER','Közlemény: triatlon tagdíj november 8 000 Ft','2026.11.04 JÓVÁÍRÁS VARGA ISTVÁN','Közlemény: úszó szakosztály tagdíj 12 000 Ft','2026.11.05 JÓVÁÍRÁS NAGY ANNA','Közlemény: tagdíj nov-dec 16 000 Ft','2026.11.07 JÓVÁÍRÁS SZABÓ G.','Közlemény: Szabó Gábor úszás havidíj 9 500 Ft','2026.11.09 TERHELÉS ÁRAMSZOLGÁLTATÓ -42 310 Ft'];
+  items=items.concat(buildItems(lines,'minta-kivonat.pdf (minta)'));
+  status('Minta adat betöltve – kitalált nevekkel és összegekkel.');render();
+});
+const saved=store.get('vesc-taglista');if(saved)$('members').value=saved;
+$('cats').value=store.get('vesc-jogcimek')||DEF_CATS;
+parseMembers();parseCats();
+}
+</script>
+</body>
+</html>
